@@ -1,0 +1,7 @@
+{
+  "name": "jee-portal-db",
+  "private": true,
+  "type": "module",
+  "scripts": { "apply": "node apply.mjs" },
+  "dependencies": { "pg": "^8.13.0" }
+}
