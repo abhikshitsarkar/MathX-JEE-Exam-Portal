@@ -9,6 +9,8 @@ A complete online examination platform with:
 - Solutions and analytics.
 - A PDF knowledge base.
 - A hybrid AI paper generator that uses your bank first and writes new questions only for the gaps.
+- **Every student can make their own practice paper** (bank first, AI for the gaps, with a daily limit per student). Only that student can see the paper and their marks.
+- **Shared study material:** any user can upload PDFs; they are shared with everyone for making papers.
 
 Runs on **Neon** (database, sign-in, file storage, server function) and **Firebase Hosting** (website), both on free plans.
 
@@ -47,7 +49,7 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (schema, flows, functi
 jee-portal/
 ├─ web/                      React app (student portal + /admin)
 ├─ db/
-│  ├─ migrations/            8 SQL migrations: schema, RLS, exam engine, admin, file rules, reference data
+│  ├─ migrations/            10 SQL migrations: schema, RLS, exam engine, admin, file rules, reference data
 │  ├─ seed.sql               optional sample: 16 verified questions + a published 30-minute test
 │  └─ apply.sh               applies everything to your Neon database
 ├─ functions/
@@ -208,12 +210,23 @@ Your site will be at `https://YOUR-FIREBASE-PROJECT-ID.web.app`.
 
 Nothing in this repository enables a paid service.
 
+## Updating an existing installation
+
+`db/apply.mjs` only sets up an empty database. When a new migration is added later, open it, copy its contents into the Neon **SQL Editor**, run it, then press **Refresh schema cache** on the Data API page. Run them in order of their file names; each is safe to run again by mistake.
+
+| File | Adds |
+|---|---|
+| `20261019000009_material_selection.sql` | Choosing which PDFs the AI writes from |
+| `20261019000010_student_papers.sql` | Students' own private papers, shared uploads, per-student AI limit |
+
+After a migration that changes the `api` function's behaviour (both of the above), rebuild and redeploy the function as in step 6.
+
 ---
 
 ## Testing
 
 ```bash
-bash tests/db/run.sh            # 120 database checks (PostgreSQL 15+ binaries; run as a non-root user)
+bash tests/db/run.sh            # 175 database checks (PostgreSQL 15+ binaries; run as a non-root user)
 cd web && npm test              # 35 unit tests
 cd functions && npm run typecheck && npm run build
 # full-stack browser tests — requirements are listed at the top of tests/e2e/start.sh
@@ -237,6 +250,7 @@ These run as a non-superuser owner, as on Neon. They cover:
 These drive the real built website and the real bundled function against a local stand-in for Neon: PostgREST for the Data API, a token issuer for Neon Auth, and an S3 server for storage.
 
 - **Student:** takes a test, refreshes mid-test, answers while offline, submits, and gets the exact expected score.
+- **Student's own paper:** makes a paper (bank + mock AI), takes it and sees the result; another student and the admin cannot see it; a student's PDF upload is shared with everyone but only the uploader can delete it.
 - **Admin:**
   - Generates, reviews and publishes a paper with the mock provider.
   - Uploads a PDF to storage and indexes it.

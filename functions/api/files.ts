@@ -44,7 +44,7 @@ function checkPath(bucket: unknown, path: unknown): { bucket: string; path: stri
 async function allowed(c: Caller, bucket: string, path: string, write: boolean): Promise<void> {
   const { data, error } = await c.db.rpc('can_access_file', { p_bucket: bucket, p_path: path, p_write: write });
   if (error) throw new HttpError(500, `Permission check failed: ${error.message}`);
-  if (data !== true) throw new HttpError(403, write ? 'Only administrators can upload files.' : 'You do not have access to this file.');
+  if (data !== true) throw new HttpError(403, write ? 'You can only upload or change your own files.' : 'You do not have access to this file.');
 }
 
 export async function handleFiles(req: Request, c: Caller, route: string): Promise<Response> {

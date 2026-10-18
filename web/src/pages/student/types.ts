@@ -3,6 +3,8 @@ export interface ExamListItem {
   duration_minutes: number; total_marks: number; opens_at: string | null; closes_at: string | null; max_attempts: number;
   release_policy: string; question_count: number; my_attempts: number; open_attempt_id: string | null;
   availability: 'open' | 'upcoming' | 'closed';
+  /** the student's own practice paper (private to them) */
+  is_mine?: boolean;
 }
 export interface AttemptListItem {
   attempt_id: string; version_id: string; title: string; attempt_no: number; status: string; started_at: string;

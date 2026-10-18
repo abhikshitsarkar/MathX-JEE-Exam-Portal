@@ -136,11 +136,9 @@ export function useTheme() {
   return { theme, cycle };
 }
 
-export function Logo({ size = 26 }: { size?: number }) {
+export function Logo({ size = 32 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden>
-      <rect width="64" height="64" rx="12" fill="rgba(255,255,255,0.12)" />
-      <path d="M16 46 L28 18 L36 36 L48 14" fill="none" stroke="#F5C518" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <img src={`${import.meta.env.BASE_URL}logo-192.png`} width={size} height={size} alt="" aria-hidden
+      style={{ borderRadius: '50%', flex: 'none', display: 'block', boxShadow: '0 0 0 2px rgba(255,255,255,0.4)' }} />
   );
 }

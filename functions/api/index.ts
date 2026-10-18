@@ -1,11 +1,12 @@
 // Neon Function `api` (Node.js 24).
-//   POST /ai                 { action: "status" | "plan" | "generate", ... }  — admin only
-//   POST /files/sign-upload  { bucket, path, contentType, size }              — admin only
+//   POST /ai                 { action: "status" | "plan" | "generate", ... }  — admins for official
+//                            papers; any signed-in user for their own practice paper
+//   POST /files/sign-upload  { bucket, path, contentType, size }              — per can_access_file
 //   POST /files/sign-download{ bucket, path }                                 — per can_access_file
 //   GET|PUT|DELETE /files/object?bucket=&path=                                — per can_access_file
 // Every request must carry the caller's Neon Auth JWT. The AI key is read
 // from the AI_API_KEY environment variable and never leaves the server.
-import { generate, loadSettings, plan } from './ai.ts';
+import { generate, loadSettings, plan, studentAllowance } from './ai.ts';
 import { handleFiles } from './files.ts';
 import { authenticate, corsHeaders, HttpError, isAdmin, json } from './http.ts';
 import type { GenerationRequest } from '../_shared/types.ts';
@@ -22,19 +23,27 @@ export async function handle(req: Request): Promise<Response> {
     if (route.startsWith('/files/')) return await handleFiles(req, caller, route);
 
     if (route === '/ai' && req.method === 'POST') {
-      if (!(await isAdmin(caller))) throw new HttpError(403, 'Administrator access required.');
+      // Admins make official papers; everyone else makes papers for themselves only.
+      const practice = !(await isAdmin(caller)) || (await req.clone().json().catch(() => ({})))?.practice === true;
       const body = await req.json().catch(() => ({}));
       switch (body?.action) {
         case 'status': {
           const settings = await loadSettings(caller.db);
-          return json(req, { provider: settings.provider, model: settings.model, has_key: !!process.env.AI_API_KEY });
+          const base = { provider: settings.provider, model: settings.model, has_key: !!process.env.AI_API_KEY };
+          if (!practice) return json(req, base);
+          const { data: usage } = await caller.db.rpc('my_ai_usage');
+          const left = usage ? studentAllowance(settings, usage) : 0;
+          return json(req, {
+            ...base, practice: true, daily_limit: settings.provider === 'mock' ? null : settings.student_daily_questions ?? 20,
+            left_today: Number.isFinite(left) ? left : null,
+          });
         }
         case 'plan':
           if (!body.request || typeof body.request !== 'object') throw new HttpError(400, 'Missing exam requirements.');
-          return json(req, await plan(caller.db, caller.userId, body.request as GenerationRequest));
+          return json(req, await plan(caller.db, caller.userId, body.request as GenerationRequest, practice));
         case 'generate':
           if (typeof body.job_id !== 'string') throw new HttpError(400, 'Missing job_id.');
-          return json(req, await generate(caller.db, caller.userId, body.job_id));
+          return json(req, await generate(caller.db, caller.userId, body.job_id, practice));
         default:
           throw new HttpError(400, 'Unknown action.');
       }

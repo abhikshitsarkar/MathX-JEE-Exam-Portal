@@ -12,8 +12,16 @@ import { type Db, HttpError } from './http.ts';
 const DEFAULT_SETTINGS: AiSettings = {
   provider: 'mock', model: 'claude-sonnet-5-5', base_url: null, max_output_tokens: 6000, temperature: 0.4,
   price_input_per_mtok: 2, price_output_per_mtok: 10, batch_size: 4, max_questions_per_job: 90,
-  daily_question_quota: 150, monthly_budget_usd: 10, context_chunks: 5,
+  daily_question_quota: 150, monthly_budget_usd: 10, context_chunks: 5, student_daily_questions: 20,
 };
+
+interface Usage { my_questions_24h: number; questions_24h: number; cost_30d: number }
+
+/** AI questions this student may still get today (Infinity with the free mock provider). */
+export function studentAllowance(settings: AiSettings, usage: Usage): number {
+  if (settings.provider === 'mock') return Infinity;
+  return Math.max(0, (settings.student_daily_questions ?? 20) - Number(usage.my_questions_24h));
+}
 
 async function must<T>(p: PromiseLike<{ data: T; error: { message: string } | null }>, what: string): Promise<T> {
   const { data, error } = await p;
@@ -36,9 +44,24 @@ async function loadTaxonomy(db: Db): Promise<Taxonomy> {
 }
 
 // ---------------------------------------------------------------------------
+// Study-material PDFs chosen for a job (valid ids only); null = all indexed material.
+function chosenDocuments(request: GenerationRequest | null | undefined): string[] | null {
+  const ids = (request?.document_ids ?? []).filter((x) => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x));
+  return ids.length ? [...new Set(ids)].slice(0, 50) : null;
+}
+
 // plan: blueprint → search the bank → gaps → estimate → job
 // ---------------------------------------------------------------------------
-export async function plan(db: Db, userId: string, request: GenerationRequest) {
+export async function plan(db: Db, userId: string, input: GenerationRequest, practice = false) {
+  const request: GenerationRequest = practice
+    ? {
+      ...input,
+      title: (input.title ?? '').trim() || 'My practice paper',
+      // a student's own paper: open at once, results immediately, a few attempts
+      release_policy: 'immediate', release_at: null, opens_at: null, closes_at: null,
+      max_attempts: Math.min(10, Math.max(1, Number(input.max_attempts) || 3)),
+    }
+    : input;
   const [settings, tax] = await Promise.all([loadSettings(db), loadTaxonomy(db)]);
   const { blueprint, errors } = buildBlueprint(request, tax);
   if (!blueprint) throw new HttpError(400, 'The exam requirements are not valid.', { errors });
@@ -71,6 +94,32 @@ export async function plan(db: Db, userId: string, request: GenerationRequest) {
     .filter((s) => (s.bank_ids?.length ?? 0) < s.count)
     .map((s) => ({ slot_id: s.slot_id, label: s.label, needed: s.count - (s.bank_ids?.length ?? 0) }));
 
+  if (practice) {
+    if (allowAi && gaps > 0) {
+      const usage = await must(db.rpc('my_ai_usage'), 'Reading AI usage') as Usage;
+      const left = studentAllowance(settings, usage);
+      if (gaps > left) {
+        throw new HttpError(429,
+          `This paper needs ${gaps} new AI-written questions, but you can get ${left} more today ` +
+          `(limit ${settings.student_daily_questions ?? 20} a day). Make the paper smaller, pick chapters with more ` +
+          'questions in the bank, or untick "Write new questions with AI".');
+      }
+      if (settings.provider !== 'mock' && Number(usage.cost_30d) >= settings.monthly_budget_usd) {
+        throw new HttpError(429, 'AI question writing is paused for now (the monthly budget is used up). Untick "Write new questions with AI" to use the question bank only.');
+      }
+    }
+    if (!allowAi && fromBank === 0) {
+      throw new HttpError(400, 'The question bank has no questions for these chapters and types yet. Tick "Write new questions with AI" or choose other chapters.');
+    }
+    const id = await must(db.rpc('practice_create_job', {
+      p_request: request,
+      p_blueprint: { sections: blueprint.sections, totals: blueprint.totals },
+      p_plan: { slots: blueprint.slots, estimate, from_bank: fromBank, gaps, allow_ai: allowAi },
+      p_provider: settings.provider, p_model: settings.model, p_requested: allowAi ? gaps : 0, p_est: estimate.usd,
+    }), 'Creating your paper') as string;
+    return { job_id: id, totals: blueprint.totals, from_bank: fromBank, gaps: allowAi ? gaps : 0, missing, estimate, allow_ai: allowAi };
+  }
+
   const job = await must(db.from('generation_jobs').insert({
     created_by: userId,
     status: 'planned',
@@ -91,7 +140,7 @@ export async function plan(db: Db, userId: string, request: GenerationRequest) {
 // ---------------------------------------------------------------------------
 interface ProgressSlot extends Slot { remaining: number; attempts?: number }
 
-export async function generate(db: Db, userId: string, jobId: string) {
+export async function generate(db: Db, userId: string, jobId: string, practice = false) {
   const job = await must(db.from('generation_jobs').select('*').eq('id', jobId).maybeSingle(), 'Loading the job') as
     | { id: string; exam_id: string | null; request: GenerationRequest; status: string; questions_generated: number }
     | null;
@@ -109,24 +158,33 @@ export async function generate(db: Db, userId: string, jobId: string) {
       { slots: ProgressSlot[] };
     const pending = progress.slots.filter((s) => s.remaining > 0 && (s.attempts ?? 0) < 6);
     if (pending.length === 0) {
-      await db.from('generation_jobs').update({ status: 'review', locked_until: null }).eq('id', jobId);
+      if (practice) await db.rpc('release_generation_job', { p_job: jobId });
+      else await db.from('generation_jobs').update({ status: 'review', locked_until: null }).eq('id', jobId);
       released = true;
       return { done: true, generated: 0, failures: [], remaining: 0 };
     }
 
     // quotas
-    const usage = await must(db.rpc('ai_usage_status'), 'Reading AI usage') as { questions_24h: number; cost_30d: number };
+    const usage = await must(db.rpc(practice ? 'my_ai_usage' : 'ai_usage_status'), 'Reading AI usage') as Usage;
     if (usage.questions_24h >= settings.daily_question_quota) {
-      throw new HttpError(429, `Daily AI question quota reached (${settings.daily_question_quota}). Raise it in Settings or try tomorrow.`);
+      throw new HttpError(429, practice
+        ? 'AI question writing has reached today\'s overall limit. You can start the paper with the questions ready so far, or try again tomorrow.'
+        : `Daily AI question quota reached (${settings.daily_question_quota}). Raise it in Settings or try tomorrow.`);
     }
     if (settings.provider !== 'mock' && Number(usage.cost_30d) >= settings.monthly_budget_usd) {
-      throw new HttpError(429, `30-day AI budget of $${settings.monthly_budget_usd} reached. Raise it in Settings to continue.`);
+      throw new HttpError(429, practice
+        ? 'AI question writing is paused for now (the monthly budget is used up). You can start the paper with the questions ready so far.'
+        : `30-day AI budget of $${settings.monthly_budget_usd} reached. Raise it in Settings to continue.`);
+    }
+    const studentLeft = practice ? studentAllowance(settings, usage) : Infinity;
+    if (studentLeft <= 0) {
+      throw new HttpError(429, `You have used today's ${settings.student_daily_questions ?? 20} AI-written questions. You can start the paper with the questions ready so far, or continue tomorrow.`);
     }
 
     // pick a batch from one subject so the context excerpts stay relevant
     const subjectId = pending[0].subject_id;
     const batchSize = Math.max(1, Math.min(settings.batch_size, 10,
-      settings.daily_question_quota - usage.questions_24h));
+      settings.daily_question_quota - usage.questions_24h, studentLeft));
     const items: WorkItem[] = [];
     for (const slot of pending.filter((s) => s.subject_id === subjectId)) {
       for (let i = 0; i < slot.remaining && items.length < batchSize; i++) {
@@ -143,6 +201,7 @@ export async function generate(db: Db, userId: string, jobId: string) {
       ? (await must(db.rpc('search_chunks', {
         p_query: [...chapterNames, ...topicNames].join(' '), p_subject: subjectId,
         p_chapter: items[0].slot.chapter_ids[0] ?? null, p_limit: settings.context_chunks,
+        p_documents: chosenDocuments(job.request),
       }), 'Retrieving study material') as Excerpt[])
       : [];
 
@@ -175,10 +234,9 @@ export async function generate(db: Db, userId: string, jobId: string) {
       callError = (e as Error).message;
     }
     const cost = settings.provider === 'mock' ? 0 : costUsd(settings, inTok, outTok);
-    await db.from('ai_calls').insert({
-      job_id: jobId, user_id: userId, provider: settings.provider, model: settings.model, purpose: 'generate_questions',
-      input_tokens: inTok, output_tokens: outTok, cost_usd: cost, ok: !callError, error: callError,
-      latency_ms: Date.now() - t0,
+    await db.rpc('log_ai_call', {
+      p_job: jobId, p_provider: settings.provider, p_model: settings.model, p_input_tokens: inTok,
+      p_output_tokens: outTok, p_cost: cost, p_ok: !callError, p_error: callError, p_latency_ms: Date.now() - t0,
     });
 
     let parsed: { questions?: unknown[] } = {};
@@ -227,7 +285,12 @@ export async function generate(db: Db, userId: string, jobId: string) {
         continue;
       }
 
-      const similar = await must(db.rpc('find_similar_questions', {
+      if (practice && report.verdict !== 'pass') {
+        // no human review for students' papers: anything doubtful is rewritten instead
+        failures.push({ ref: item.ref, slot: item.slot.label, errors: [`Automatic check: ${report.flags.join(', ')}`] });
+        continue;
+      }
+      const similar = practice ? [] : await must(db.rpc('find_similar_questions', {
         p_statement: normalized.statement, p_subject: item.slot.subject_id, p_threshold: 0.6, p_limit: 3,
       }), 'Checking for duplicates') as { id: string; similarity: number; exact: boolean }[];
       if (similar.some((s) => s.exact)) {
@@ -250,36 +313,45 @@ export async function generate(db: Db, userId: string, jobId: string) {
         ? tax.topics.find((t) => t.chapter_id === chapterId && t.name.toLowerCase() === normalized.subtopic!.toLowerCase())
         : undefined;
 
-      const id = await must(db.rpc('admin_upsert_question', {
-        p: {
-          subject_id: item.slot.subject_id,
-          chapter_id: chapterId,
-          topic_id: topic?.id ?? (item.slot.topic_ids.length === 1 ? item.slot.topic_ids[0] : null),
-          subtopic: normalized.subtopic ?? null,
-          type: normalized.type,
-          difficulty: normalized.difficulty,
-          statement: normalized.statement,
-          options: normalized.options,
-          answer: normalized.answer,
-          solution: normalized.solution,
-          concepts: normalized.concepts ?? null,
-          learning_objective: normalized.learning_objective ?? null,
-          marks: item.slot.marks,
-          negative_marks: item.slot.negative_marks,
-          origin: 'ai',
-          status: 'draft',
-          tags: ['ai', item.slot.section_key],
-          source_refs: refs,
-          generation_job_id: jobId,
-          validation: {
-            ...report,
-            provider: settings.provider,
-            model: settings.model,
-            verification: normalized.verification ?? null,
-            generated_at: new Date().toISOString(),
-          },
+      const payload = {
+        subject_id: item.slot.subject_id,
+        chapter_id: chapterId,
+        topic_id: topic?.id ?? (item.slot.topic_ids.length === 1 ? item.slot.topic_ids[0] : null),
+        subtopic: normalized.subtopic ?? null,
+        type: normalized.type,
+        difficulty: normalized.difficulty,
+        statement: normalized.statement,
+        options: normalized.options,
+        answer: normalized.answer,
+        solution: normalized.solution,
+        concepts: normalized.concepts ?? null,
+        learning_objective: normalized.learning_objective ?? null,
+        marks: item.slot.marks,
+        negative_marks: item.slot.negative_marks,
+        origin: 'ai',
+        status: 'draft',
+        tags: ['ai', item.slot.section_key],
+        source_refs: refs,
+        generation_job_id: jobId,
+        validation: {
+          ...report,
+          provider: settings.provider,
+          model: settings.model,
+          verification: normalized.verification ?? null,
+          generated_at: new Date().toISOString(),
         },
-      }), 'Saving a generated question') as string;
+      };
+      let id: string;
+      if (practice) {
+        const { data, error } = await db.rpc('practice_save_question', { p_job: jobId, p: { ...payload, status: undefined } });
+        if (error) {
+          failures.push({ ref: item.ref, slot: item.slot.label, errors: [error.message] });
+          continue;
+        }
+        id = data as string;
+      } else {
+        id = await must(db.rpc('admin_upsert_question', { p: payload }), 'Saving a generated question') as string;
+      }
       created.set(item.slot.slot_id, [...(created.get(item.slot.slot_id) ?? []), id]);
     }
 
@@ -297,7 +369,7 @@ export async function generate(db: Db, userId: string, jobId: string) {
 
     const after = await must(db.rpc('generation_job_progress', { p_job: jobId }), 'Reading progress') as { slots: ProgressSlot[] };
     const remaining = after.slots.filter((s) => (s.attempts ?? 0) < 6).reduce((a, s) => a + s.remaining, 0);
-    if (remaining === 0) await db.from('generation_jobs').update({ status: 'review' }).eq('id', jobId);
+    if (remaining === 0 && !practice) await db.from('generation_jobs').update({ status: 'review' }).eq('id', jobId);
 
     return {
       done: remaining === 0,

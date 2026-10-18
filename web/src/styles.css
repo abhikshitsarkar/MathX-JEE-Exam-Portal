@@ -132,6 +132,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--b
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; }
 @media (max-width: 760px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+.grid-auto { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .stack { display: grid; gap: 1rem; }
 .row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
 .spread { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
@@ -200,6 +201,15 @@ table.data tr.clickable:hover td { background: var(--surface-2); }
 .topnav a:hover { color: #fff; background: rgba(255,255,255,0.08); }
 .topnav a.active { color: #fff; box-shadow: inset 0 -3px 0 var(--highlight); border-radius: 0; }
 .user-chip { display: flex; align-items: center; gap: 0.5rem; color: #fff; font-size: 0.88rem; }
+/* phones: the page links move to their own scrollable row under the logo */
+@media (max-width: 760px) {
+  .topbar-inner { flex-wrap: wrap; height: auto; padding-top: 0.45rem; gap: 0.6rem; }
+  .brand { flex: 1; min-width: 0; }
+  .brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topnav { order: 3; flex: 1 0 100%; margin: 0 -0.5rem; scrollbar-width: none; }
+  .topnav::-webkit-scrollbar { display: none; }
+  .topnav a { padding: 0.55rem 0.7rem; }
+}
 .user-chip img, .avatar { width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.2); object-fit: cover; }
 .icon-btn { background: transparent; border: 1px solid rgba(255,255,255,0.25); color: #fff; height: 32px; min-width: 32px; border-radius: var(--r-sm); cursor: pointer; font: 600 0.82rem var(--font-ui); padding: 0 0.6rem; }
 .icon-btn:hover { background: rgba(255,255,255,0.1); }

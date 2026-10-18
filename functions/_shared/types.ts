@@ -45,6 +45,8 @@ export interface GenerationRequest {
   max_attempts?: number;
   /** if false, only the question bank is used */
   allow_ai?: boolean;
+  /** study-material PDFs to write from; empty or missing = all indexed material */
+  document_ids?: string[];
 }
 
 export interface Subject { id: string; code: string; name: string }
@@ -120,6 +122,8 @@ export interface AiSettings {
   daily_question_quota: number;
   monthly_budget_usd: number;
   context_chunks: number;
+  /** new AI questions a student may get per 24 hours for their own papers (mock provider: unlimited) */
+  student_daily_questions?: number;
 }
 
 export interface Excerpt {

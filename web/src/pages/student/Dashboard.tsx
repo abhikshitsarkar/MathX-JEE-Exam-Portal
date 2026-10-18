@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ScoreRows, TrendChart } from '../../components/Charts';
-import { rpc } from '../../lib/api';
+import { friendlyError, rpc } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { fmtDate, fmtDuration, num, pct } from '../../lib/format';
-import { Empty, ErrorNote, Loading, useAsync } from '../../lib/ui';
+import { Confirm, Empty, ErrorNote, Loading, useAsync, useToast } from '../../lib/ui';
 import type { AttemptListItem, ExamListItem, Performance } from './types';
 
 export default function StudentDashboard() {
@@ -15,7 +16,16 @@ export default function StudentDashboard() {
     return { exams, attempts, perf };
   }, []);
 
+  const toast = useToast();
+  const [removing, setRemoving] = useState<ExamListItem | null>(null);
   const first = profile?.full_name?.split(' ')[0];
+  const official = data?.exams.filter((e) => !e.is_mine) ?? [];
+  const mine = data?.exams.filter((e) => e.is_mine) ?? [];
+  const remove = async (e: ExamListItem) => {
+    try { await rpc('practice_archive', { p_exam: e.exam_id }); toast('Paper removed from your list'); reload(); }
+    catch (err) { toast(friendlyError(err), true); }
+    setRemoving(null);
+  };
   return (
     <div className="page">
       <div className="page-head">
@@ -30,35 +40,22 @@ export default function StudentDashboard() {
           <div className="stack">
             <section className="panel">
               <div className="panel-head"><h2>Available tests</h2></div>
-              {data.exams.length === 0 ? (
+              {official.length === 0 ? (
                 <Empty title="No tests are published yet">New papers appear here as soon as your teacher publishes them.</Empty>
               ) : (
                 <div className="exam-list">
-                  {data.exams.map((e) => {
-                    const left = e.max_attempts - e.my_attempts;
-                    return (
-                      <article className="exam-item" key={e.version_id}>
-                        <div>
-                          <h3>{e.title}</h3>
-                          <div className="exam-facts num">
-                            <span>{e.question_count} questions</span><span>{num(e.total_marks)} marks</span>
-                            <span>{fmtDuration(e.duration_minutes * 60)}</span>
-                            {e.closes_at && <span>Closes {fmtDate(e.closes_at)}</span>}
-                            {e.availability === 'upcoming' && <span>Opens {fmtDate(e.opens_at)}</span>}
-                          </div>
-                        </div>
-                        <div className="btn-row">
-                          {e.open_attempt_id ? (
-                            <Link className="btn primary" to={`/attempt/${e.open_attempt_id}`}>Resume test</Link>
-                          ) : e.availability === 'open' && left > 0 ? (
-                            <Link className="btn primary" to={`/exam/${e.version_id}`}>{e.my_attempts ? 'Attempt again' : 'View instructions'}</Link>
-                          ) : (
-                            <span className="badge">{e.availability === 'upcoming' ? 'Not open yet' : e.availability === 'closed' ? 'Closed' : 'No attempts left'}</span>
-                          )}
-                        </div>
-                      </article>
-                    );
-                  })}
+                  {official.map((e) => <ExamRow key={e.version_id} e={e} />)}
+                </div>
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="panel-head"><h2>My papers</h2><Link to="/make" className="btn sm primary">Make a paper</Link></div>
+              {mine.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>Make your own practice paper from the chapters you choose. Only you can see your papers and your marks.</p>
+              ) : (
+                <div className="exam-list">
+                  {mine.map((e) => <ExamRow key={e.version_id} e={e} onRemove={() => setRemoving(e)} />)}
                 </div>
               )}
             </section>
@@ -114,7 +111,36 @@ export default function StudentDashboard() {
           </aside>
         </div>
       )}
+      {removing && <Confirm title="Remove this paper?" confirmLabel="Remove" onClose={() => setRemoving(null)} onConfirm={() => void remove(removing)}
+        body={<p>“{removing.title}” leaves your list. Your attempts and marks stay in My attempts.</p>} />}
     </div>
+  );
+}
+
+function ExamRow({ e, onRemove }: { e: ExamListItem; onRemove?: () => void }) {
+  const left = e.max_attempts - e.my_attempts;
+  return (
+    <article className="exam-item">
+      <div>
+        <h3>{e.title}</h3>
+        <div className="exam-facts num">
+          <span>{e.question_count} questions</span><span>{num(e.total_marks)} marks</span>
+          <span>{fmtDuration(e.duration_minutes * 60)}</span>
+          {e.closes_at && <span>Closes {fmtDate(e.closes_at)}</span>}
+          {e.availability === 'upcoming' && <span>Opens {fmtDate(e.opens_at)}</span>}
+        </div>
+      </div>
+      <div className="btn-row">
+        {e.open_attempt_id ? (
+          <Link className="btn primary" to={`/attempt/${e.open_attempt_id}`}>Resume test</Link>
+        ) : e.availability === 'open' && left > 0 ? (
+          <Link className="btn primary" to={`/exam/${e.version_id}`}>{e.my_attempts ? 'Attempt again' : 'View instructions'}</Link>
+        ) : (
+          <span className="badge">{e.availability === 'upcoming' ? 'Not open yet' : e.availability === 'closed' ? 'Closed' : 'No attempts left'}</span>
+        )}
+        {onRemove && !e.open_attempt_id && <button className="btn ghost sm" onClick={onRemove}>Remove</button>}
+      </div>
+    </article>
   );
 }
 

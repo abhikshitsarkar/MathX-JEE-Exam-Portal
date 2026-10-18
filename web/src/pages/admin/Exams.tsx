@@ -18,7 +18,7 @@ export default function Exams() {
   const [creating, setCreating] = useState(false);
   const { data, error, loading, reload } = useAsync(() => must<ExamRow[]>(db.from('exams')
     .select('id, title, kind, is_archived, created_at, exam_versions(id, version_no, status, total_marks, duration_minutes, published_at, closes_at)')
-    .eq('is_archived', showArchived).order('created_at', { ascending: false }).limit(200)), [showArchived]);
+    .is('owner_id', null).eq('is_archived', showArchived).order('created_at', { ascending: false }).limit(200)), [showArchived]);
 
   return (
     <div className="stack">

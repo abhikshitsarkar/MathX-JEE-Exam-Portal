@@ -4,7 +4,7 @@ import { fmtDate, num } from '../../lib/format';
 import { ErrorNote, Loading, useAsync } from '../../lib/ui';
 
 interface OverviewData {
-  students: number; admins: number; questions: Record<string, number>; exams_published: number; exams_draft: number;
+  students: number; admins: number; questions: Record<string, number>; exams_published: number; exams_draft: number; student_papers?: number;
   attempts_in_progress: number; attempts_completed: number; documents: Record<string, number>;
   ai_cost_30d: number; ai_calls_30d: number; ai_failures_30d: number;
   recent_attempts: { id: string; status: string; started_at: string; email: string; full_name: string | null; title: string; score: number | null; max_score: number | null }[];
@@ -21,10 +21,11 @@ export default function Overview() {
       <div className="page-head"><div><h1>Overview</h1><p>What's happening across the portal.</p></div>
         <div className="btn-row"><Link className="btn" to="/admin/questions/new">Add a question</Link><Link className="btn primary" to="/admin/generate">Build a paper</Link></div>
       </div>
-      <div className="grid-4">
+      <div className="grid-auto">
         <div className="panel stat"><b>{data.students}</b><span>Registered students</span></div>
         <div className="panel stat"><b>{q.approved ?? 0}</b><span>Approved questions</span></div>
         <div className="panel stat"><b>{data.exams_published}</b><span>Published exams ({data.exams_draft} drafts)</span></div>
+        <div className="panel stat"><b>{data.student_papers ?? 0}</b><span>Papers students made for themselves (private)</span></div>
         <div className="panel stat"><b>{data.attempts_completed}</b><span>Completed attempts ({data.attempts_in_progress} in progress)</span></div>
       </div>
       {pendingReview > 0 && (

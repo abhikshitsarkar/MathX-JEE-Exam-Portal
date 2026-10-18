@@ -9,7 +9,7 @@ import { type ExamTemplate, type MarkingScheme, must, type Rules, useTaxonomy } 
 interface AiSettings {
   provider: string; model: string; base_url: string | null; max_output_tokens: number; temperature: number | null;
   price_input_per_mtok: number; price_output_per_mtok: number; batch_size: number; max_questions_per_job: number;
-  daily_question_quota: number; monthly_budget_usd: number; context_chunks: number;
+  daily_question_quota: number; monthly_budget_usd: number; context_chunks: number; student_daily_questions?: number;
 }
 
 export default function Settings() {
@@ -72,7 +72,8 @@ function AiPanel() {
         <label className="field">Input price ($ per million tokens)<input type="number" step="any" min={0} value={f.price_input_per_mtok} onChange={n('price_input_per_mtok')} /></label>
         <label className="field">Output price ($ per million tokens)<input type="number" step="any" min={0} value={f.price_output_per_mtok} onChange={n('price_output_per_mtok')} /></label>
         <label className="field">Max new questions per paper<input type="number" min={1} value={f.max_questions_per_job} onChange={n('max_questions_per_job')} /></label>
-        <label className="field">Daily AI question limit<input type="number" min={0} value={f.daily_question_quota} onChange={n('daily_question_quota')} /></label>
+        <label className="field">Daily AI question limit <small>everyone together</small><input type="number" min={0} value={f.daily_question_quota} onChange={n('daily_question_quota')} /></label>
+        <label className="field">Daily AI questions per student <small>for their own papers</small><input type="number" min={0} value={f.student_daily_questions ?? 20} onChange={n('student_daily_questions')} /></label>
         <label className="field">30-day budget ($)<input type="number" step="any" min={0} value={f.monthly_budget_usd} onChange={n('monthly_budget_usd')} /></label>
       </div>
       <p className="small muted">The API key is never stored here. Set it as the <span className="code">AI_API_KEY</span> environment variable of the <span className="code">api</span> Neon Function. Prices are used only for estimates — check your provider's current price list.</p>

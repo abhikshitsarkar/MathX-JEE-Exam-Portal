@@ -170,4 +170,3 @@ begin
   perform t.logout();
 end $$;
 
-select 'ALL DATABASE TESTS PASSED' as result;

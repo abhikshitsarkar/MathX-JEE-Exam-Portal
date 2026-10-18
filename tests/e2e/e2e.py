@@ -5,6 +5,9 @@ offline) → submit → result with the expected score.
 Admin: overview → AI paper generation (mock provider) → review → assemble →
 publish → a second student sees the new paper; PDF upload and indexing;
 question creation; students cannot reach admin pages.
+Student papers: a student makes their own paper (bank + mock AI), takes it,
+sees the result; other students and the admin cannot see it; a student's PDF
+upload is shared with everyone.
 """
 import json
 import os
@@ -217,6 +220,99 @@ def student_sees_new_exam_and_no_admin(browser):
     ctx.close()
 
 
+def student_makes_own_paper(browser):
+    ctx, page = new_page(browser, "student2", viewport={"width": 1280, "height": 860})
+    page.goto(BASE + "/make")
+    expect(page.get_by_role("heading", name="Make a paper")).to_be_visible()
+    expect(page.get_by_text("AI is in demo mode")).to_be_visible(timeout=15000)
+    page.get_by_label("Paper name").fill("My Kinematics Drill")
+    rows = page.locator(".section-row")
+    expect(rows).to_have_count(3)
+    while rows.count() > 1:
+        rows.last.get_by_role("button", name="Remove").click()
+    rows.nth(0).get_by_label("Subject").select_option("PHY")
+    rows.nth(0).get_by_label("Questions").fill("4")
+    rows.nth(0).get_by_role("button", name=re.compile("chapters")).click()
+    page.get_by_role("dialog").get_by_label("Kinematics").check()
+    page.get_by_role("dialog").get_by_role("button", name="Done").click()
+    page.get_by_label("Duration (minutes)").fill("20")
+    # (a full-page screenshot here can leave the sticky header mid-page and swallow the click)
+    page.screenshot(path=os.path.join(SHOTS, "20-make-paper.png"))
+    page.get_by_role("button", name="Make my paper").click()
+    try:
+        expect(page.get_by_role("heading", name="Paper structure")).to_be_visible(timeout=120000)
+    except Exception:
+        shot(page, "20b-make-paper-failed")
+        print("  page text:", page.locator("body").inner_text()[:800])
+        raise
+    check("/exam/" in page.url, "the student's paper was made (bank + AI) and opened")
+    shot(page, "21-own-paper-instructions")
+    page.get_by_label("I have read the instructions").check()
+    page.get_by_role("button", name="Start test").click()
+    expect(page.get_by_role("timer")).to_be_visible()
+    page.locator("label.option").first.click()
+    page.get_by_role("button", name="Save & Next").click()
+    expect(page.get_by_text("All answers saved")).to_be_visible(timeout=10000)
+    page.get_by_role("button", name="Submit", exact=True).click()
+    page.get_by_role("dialog").get_by_role("button", name="Submit test").click()
+    expect(page.get_by_role("heading", name="Test submitted")).to_be_visible()
+    page.get_by_role("link", name="See your result").click()
+    expect(page.locator(".score-big")).to_contain_text("16")
+    check(True, "the student sees their own result and solutions straight away")
+    shot(page, "22-own-paper-result")
+    page.goto(BASE)
+    expect(page.get_by_role("heading", name="My papers")).to_be_visible()
+    expect(page.locator(".exam-item", has_text="My Kinematics Drill")).to_be_visible()
+    check(True, "the paper is listed under My papers")
+
+    # share a PDF with everyone
+    pdf_path = os.path.join(WORK, "arjun-notes.pdf")
+    make_pdf(pdf_path)
+    page.goto(BASE + "/material")
+    page.get_by_role("button", name="Upload PDF").click()
+    page.locator("input[type=file]").set_input_files(pdf_path)
+    page.get_by_label("Title").fill("Arjun's motion notes")
+    page.get_by_label("I have the right to share").check()
+    page.get_by_role("button", name="Upload and index").click()
+    expect(page.locator("tr", has_text="Arjun's motion notes").locator(".badge", has_text="Indexed")).to_be_visible(timeout=60000)
+    check(True, "a student uploaded and indexed a PDF")
+    shot(page, "23-shared-material")
+    ctx.close()
+
+    # another student: sees the shared PDF, not the private paper
+    ctx, page = new_page(browser, "student", viewport={"width": 1280, "height": 860})
+    page.goto(BASE)
+    expect(page.get_by_role("heading", name="My papers")).to_be_visible()
+    check(page.get_by_text("My Kinematics Drill").count() == 0, "other students cannot see someone else's paper")
+    page.goto(BASE + "/material")
+    row = page.locator("tr", has_text="Arjun's motion notes")
+    expect(row).to_be_visible()
+    check(row.get_by_role("button", name="Delete").count() == 0, "shared material is visible to everyone but only its uploader can delete it")
+    page.goto(BASE + "/make")
+    expect(page.get_by_label("Arjun's motion notes")).to_be_visible(timeout=15000)
+    check(True, "everyone can pick shared material when making a paper")
+    ctx.close()
+
+    # phone: the top navigation fits
+    ctx, page = new_page(browser, "student", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+    page.goto(BASE)
+    expect(page.get_by_role("heading", name="My papers")).to_be_visible()
+    check(page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "dashboard has no horizontal scroll on a phone")
+    shot(page, "24-dashboard-mobile")
+    ctx.close()
+
+    # admin: no trace of the private paper or its marks
+    ctx, page = new_page(browser, "admin", viewport={"width": 1440, "height": 900})
+    page.goto(BASE + "/admin")
+    expect(page.get_by_role("heading", name="Overview")).to_be_visible()
+    expect(page.locator(".panel.stat", has_text="Papers students made")).to_contain_text("1")
+    check(page.get_by_text("My Kinematics Drill").count() == 0, "admin overview does not show the student's paper or score")
+    page.goto(BASE + "/admin/exams")
+    expect(page.get_by_text("Mechanics Sprint").first).to_be_visible()
+    check(page.get_by_text("My Kinematics Drill").count() == 0, "admin exam list does not include students' own papers")
+    ctx.close()
+
+
 def make_pdf(path):
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -241,7 +337,7 @@ def make_pdf(path):
 with sync_playwright() as p:
     browser = p.chromium.launch()
     failed = False
-    for fn in (student_flow, student_mobile, admin_flow, student_sees_new_exam_and_no_admin):
+    for fn in (student_flow, student_mobile, admin_flow, student_sees_new_exam_and_no_admin, student_makes_own_paper):
         try:
             fn(browser)
         except Exception as e:  # keep going so we see every failure

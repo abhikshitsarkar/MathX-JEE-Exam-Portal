@@ -12,6 +12,7 @@ const ExamRoom = lazy(() => import('./pages/student/ExamRoom'));
 const Submitted = lazy(() => import('./pages/student/Submitted'));
 const Result = lazy(() => import('./pages/student/Result'));
 const History = lazy(() => import('./pages/student/History'));
+const PracticeBuild = lazy(() => import('./pages/student/PracticeBuild'));
 const AdminOverview = lazy(() => import('./pages/admin/Overview'));
 const AdminQuestions = lazy(() => import('./pages/admin/Questions'));
 const QuestionEditor = lazy(() => import('./pages/admin/QuestionEditor'));
@@ -37,6 +38,8 @@ function TopBar() {
         <nav className="topnav" aria-label="Main">
           <NavLink to="/" end>Tests</NavLink>
           <NavLink to="/history">My attempts</NavLink>
+          <NavLink to="/make">Make a paper</NavLink>
+          <NavLink to="/material">Study material</NavLink>
           {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         </nav>
         <button className="icon-btn" onClick={cycle} title="Change theme" aria-label={`Theme: ${theme}`}>
@@ -103,6 +106,9 @@ export default function App() {
         <Route path="attempt/:attemptId/submitted" element={<Submitted />} />
         <Route path="result/:attemptId" element={<Result />} />
         <Route path="history" element={<History />} />
+        <Route path="make" element={<Generate practice />} />
+        <Route path="make/:jobId" element={<PracticeBuild />} />
+        <Route path="material" element={<div className="page"><Documents shared /></div>} />
         <Route path="admin" element={<AdminShell />}>
           <Route index element={<AdminOverview />} />
           <Route path="questions" element={<AdminQuestions />} />

@@ -74,7 +74,7 @@ A question marked for review without an answer is not evaluated. An answered que
 3. **Estimate.** Remaining gaps × tokens per question × configured prices, with no calls made. A job is saved with the plan.
 4. **Generate in batches.** Each call to the `api` function (`POST /ai`, action `generate`) does one batch of up to `batch_size` questions:
    - It locks the job and checks the quotas.
-   - It retrieves only the most relevant excerpts (`search_chunks`, full-text search) from the indexed study material.
+   - It retrieves only the most relevant excerpts (`search_chunks`, full-text search) from the indexed study material. If the admin ticked specific PDFs on the Generate page (`document_ids`), only those are searched, and their best pages are used even when no words match the chapter names.
    - It calls the configured provider, or the free mock.
    - It records tokens and cost in `ai_calls`.
 5. **Validate** (`_shared/validate.ts`). Every generated question goes through these checks:

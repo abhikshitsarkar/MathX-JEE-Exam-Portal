@@ -19,7 +19,7 @@ begin
   perform t.ok((select count(*) from public.exam_versions) = 0, 'student cannot list exam versions directly');
   perform t.ok((select count(*) from public.exam_questions) = 0, 'student cannot read exam questions directly');
   perform t.ok((select count(*) from public.exam_question_keys) = 0, 'student cannot read exam keys');
-  perform t.ok((select count(*) from public.app_settings) = 0, 'student cannot read settings');
+  perform t.ok((select count(*) from public.app_settings where key <> 'ai') = 0, 'student cannot read settings other than AI limits');
   perform t.ok((select count(*) from public.audit_logs) = 0, 'student cannot read audit logs');
   perform t.ok((select count(*) from public.profiles) = 1, 'student sees only their own profile');
   perform t.ok((select count(*) from public.user_roles) = 1, 'student sees only their own roles');

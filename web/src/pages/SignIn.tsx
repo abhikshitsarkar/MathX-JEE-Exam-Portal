@@ -15,7 +15,7 @@ export default function SignIn() {
   return (
     <div className="signin">
       <section className="signin-art">
-        <div className="row" style={{ fontWeight: 700 }}><Logo size={30} /> {APP_NAME}</div>
+        <div className="row" style={{ fontWeight: 700 }}><Logo size={72} /> {APP_NAME}</div>
         <div>
           <h1>Practise under real exam conditions.</h1>
           <p>Timed JEE Main and Advanced style papers in Physics, Chemistry and Mathematics, with marking that follows each paper's scheme and solutions for every question.</p>
